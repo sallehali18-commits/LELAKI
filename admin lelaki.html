@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Sukaneka – Lelaki Dewasa</title>
+<style>
+  table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: center; position: relative;}
+  th { background: #f4f4f4; }
+  input { width: 50px; text-align: center; }
+  button { padding: 5px 10px; margin: 5px 0; cursor:pointer; }
+  .dropdown { position: relative; display: inline-block; }
+  .dropdown-content { display: none; position: absolute; background-color: #f9f9f9; min-width: 80px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); z-index: 1; }
+  .dropdown:hover .dropdown-content { display: block; }
+  .dropdown-content button { width: 100%; border: none; background: none; padding:5px; cursor:pointer; text-align:left; }
+</style>
+</head>
+<body>
+
+<h2>Admin – Kemaskini Markah (Lelaki Dewasa)</h2>
+
+<h3>Tambah Peserta Baru</h3>
+<input type="text" id="newNama" placeholder="Nama Peserta">
+<button id="tambahBtn">Tambah Peserta</button>
+
+<h3>Tambah Acara Baru</h3>
+<input type="text" id="newAcara" placeholder="Nama Acara">
+<button id="tambahAcaraBtn">Tambah Acara</button>
+
+<button id="downloadBtn">Download CSV</button>
+
+<table id="pesertaTable">
+  <thead>
+    <tr id="tableHeader">
+      <th>No</th>
+      <th>Nama</th>
+      <th>Total</th>
+      <th>Padam Peserta</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.6.0/firebase-app.js";
+import { getFirestore, collection, doc, addDoc, deleteDoc, updateDoc, onSnapshot, getDocs, deleteField, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.6.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCfExbX5ULB2iN0TFCZJH7mW5PuLL-sXuE",
+  authDomain: "rasmi-familyday-mak-namah-2025.firebaseapp.com",
+  databaseURL: "https://rasmi-familyday-mak-namah-2025-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "rasmi-familyday-mak-namah-2025",
+  storageBucket: "rasmi-familyday-mak-namah-2025.firebasestorage.app",
+  messagingSenderId: "89130136513",
+  appId: "1:89130136513:web:06db8b10f93c55ece6f540",
+  measurementId: "G-TBZ7J4TC4Q"
+};
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+const pesertaCol = collection(db, "admin-kemaskini-markah-dewasa-lelaki");
+const acaraCol = collection(db, "senarai-acara");
+let senaraiAcara = [];
+let pesertaList = [];
+
+// Load acara realtime
+onSnapshot(query(acaraCol, orderBy("createdAt","asc")), snapshot => {
+  senaraiAcara = snapshot.docs.map(d=>({id:d.id, ...d.data()}));
+  updateTableHeader();
+  renderPesertaTable(); // pastikan table refresh ikut acara baru
+});
+
+// Load peserta realtime
+onSnapshot(query(pesertaCol, orderBy("createdAt","asc")), snapshot => {
+  pesertaList = snapshot.docs.map(p=>({id:p.id, ...p.data()}));
+  renderPesertaTable();
+});
+
+// Update table header
+function updateTableHeader(){
+  const theadRow = document.getElementById("tableHeader");
+  theadRow.innerHTML = "<th>No</th><th>Nama</th>" +
+    senaraiAcara.map(a=>`<th>${a.nama} 
+      <div class="dropdown">
+        &#9660;
+        <div class="dropdown-content">
+          <button onclick="deleteAcara('${a.id}')">Padam</button>
+        </div>
+      </div>
+    </th>`).join('') +
+    "<th>Total</th><th>Padam Peserta</th>";
+}
+
+// Render table peserta
+function renderPesertaTable(){
+  const tbody = document.querySelector("#pesertaTable tbody");
+  tbody.innerHTML = "";
+  let index = 1;
+  pesertaList.forEach(p=>{
+    const tr = document.createElement("tr");
+    let total = 0;
+    const acaraInputs = senaraiAcara.map(a=>{
+      const val = Number(p[a.id]||0);
+      total += val;
+      return `<td><input type="number" value="${val}" min="0" data-id="${p.id}" data-acara="${a.id}"></td>`;
+    }).join('');
+    tr.innerHTML = `
+      <td>${index++}</td>
+      <td>${p.nama}</td>
+      ${acaraInputs}
+      <td class="total">${total}</td>
+      <td><button class="deletePesertaBtn" data-id="${p.id}">Padam</button></td>
+    `;
+    tbody.appendChild(tr);
+
+    // Event input markah
+    senaraiAcara.forEach(a=>{
+      const input = tr.querySelector(`input[data-acara="${a.id}"][data-id="${p.id}"]`);
+      input.addEventListener('input', async ()=>{
+        const val = Number(input.value);
+        await updateDoc(doc(db,pesertaCol.path,p.id), {[a.id]: val});
+        updateTotal(tr);
+      });
+    });
+  });
+
+  // Delete peserta
+  document.querySelectorAll(".deletePesertaBtn").forEach(btn=>{
+    btn.onclick = async ()=>{
+      const id = btn.dataset.id;
+      if(confirm("Padam peserta ini?")){
+        await deleteDoc(doc(db,pesertaCol.path,id));
+      }
+    };
+  });
+}
+
+function updateTotal(tr){
+  let total = 0;
+  tr.querySelectorAll("input").forEach(input=>{
+    total += Number(input.value);
+  });
+  tr.querySelector(".total").innerText = total;
+}
+
+// Tambah peserta ikut turutan
+document.getElementById("tambahBtn").onclick = async ()=>{
+  const nama = document.getElementById("newNama").value.trim();
+  if(!nama) return alert("Sila masukkan nama peserta");
+  await addDoc(pesertaCol, {nama, createdAt: serverTimestamp()});
+  document.getElementById("newNama").value="";
+};
+
+// Tambah acara
+document.getElementById("tambahAcaraBtn").onclick = async ()=>{
+  const nama = document.getElementById("newAcara").value.trim();
+  if(!nama) return alert("Sila masukkan nama acara");
+  const docRef = await addDoc(acaraCol, {nama, createdAt: serverTimestamp()});
+  document.getElementById("newAcara").value="";
+  // Initialize markah 0 untuk semua peserta
+  pesertaList.forEach(async p=>{
+    await updateDoc(doc(db,pesertaCol.path,p.id), {[docRef.id]:0});
+  });
+};
+
+// Delete acara
+window.deleteAcara = async function(acaraId){
+  if(!confirm("Padam acara ini? Semua markah peserta akan terhapus.")) return;
+  await deleteDoc(doc(db,acaraCol.path,acaraId));
+  // Padam markah acara untuk semua peserta
+  pesertaList.forEach(async p=>{
+    await updateDoc(doc(db,pesertaCol.path,p.id), {[acaraId]: deleteField()});
+  });
+};
+
+// Download CSV
+document.getElementById("downloadBtn").onclick = async ()=>{
+  const header = ["No","Nama", ...senaraiAcara.map(a=>a.nama), "Total"];
+  const rows = [header];
+  let index = 1;
+  pesertaList.forEach(p=>{
+    const row = [index++, p.nama, ...senaraiAcara.map(a=>p[a.id]||0)];
+    row.push(row.slice(2).reduce((a,b)=>a+b,0));
+    rows.push(row);
+  });
+  const csvContent = "data:text/csv;charset=utf-8," + rows.map(r=>r.join(",")).join("\n");
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download","markah-lelaki-dewasa.csv");
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+</script>
+
+</body>
+</html>
